@@ -1,8 +1,7 @@
 import nextcord, nextcord.ext.commands
 
 import time
-import asyncio
-unawait = asyncio.create_task
+from asyncio import create_task as unawait
 import json
 
 import settings as config  # also api keys
@@ -48,13 +47,14 @@ async def react( message, emoji_names ):
   
   emojis = await message.guild.fetch_emojis()
   
-  async with asyncio.TaskGroup() as doReactions:
-    for emoji_name in emoji_names:
-      try:
-        emoji = [ emoji for emoji in emojis if emoji.name == emoji_name ][0]
-      except: return
-      
-      doReactions.create_task( message.add_reaction(emoji) )
+  # async with asyncio.TaskGroup() as doReactions:
+  for emoji_name in emoji_names:
+    try:
+      emoji = [ emoji for emoji in emojis if emoji.name == emoji_name ][0]
+    except: return
+    
+    # doReactions.create_task( message.add_reaction(emoji) )
+    await message.add_reaction(emoji)
 
 def color( hexstr ):
   hexstr = hexstr.replace('#','')
@@ -190,9 +190,9 @@ async def create_tread_on_tread_emoji(reaction):
     return
   
   unawait( message.remove_reaction(reaction.emoji,reaction.member) )
+  unawait( message.add_reaction(reaction.emoji) )
   
   await channel.create_thread( message=message, name=message.content[:96] +"...", reason="4D Bot - 🧵 emoji" )
-  
 
 ############# REPORT ON 🚨 EMOJI #############
 
