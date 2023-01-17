@@ -1,7 +1,7 @@
 # 4D Bot (Discord)
 4D Bot - An assortment of bot functionality needed for the 4dm Discord Server
 
-See also the [/4dMinerCommunity/4dm-leveling](4D Leveling Bot) for the leveling functionality which is handled by a separate bot
+See also the [https://github.com/4dMinerCommunity/4dm-leveling](4D Leveling Bot) for the leveling functionality which is handled by a separate bot
 
 ## Features
 
