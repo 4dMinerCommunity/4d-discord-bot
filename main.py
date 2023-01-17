@@ -97,7 +97,7 @@ async def poll( interaction, question: str = nextcord.SlashOption(description="S
   embed = nextcord.Embed( title="4D Poll", colour=color('#00c8c8'), description=question )
   embed.set_footer( text=f"Made by: {interaction.user}", icon_url=interaction.user.avatar.url )
   
-  message = await interaction.send( embed=embed )
+  message = await (await interaction.send( embed=embed )).fetch()
   
   await react( message, config.poll_default_emoji )
 
