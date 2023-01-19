@@ -1,15 +1,12 @@
 import nextcord, nextcord.ext.commands
+from nextcord import SlashOption as Option
 
 import time
 from asyncio import create_task as unawait
 import json
+import re
 
 import settings as config  # also api keys
-try:
-  with open('tags.json', 'r') as tagsfile:
-    tags = json.load(tagsfile)
-except:
-  tags = {}
 
 log = print
 if not config.debug: log = lambda *_: None  # disable log on release
@@ -21,7 +18,7 @@ intents = nextcord.Intents.default()
 intents.message_content = True
 intents.members = True
 # intents.presences = True
-intents.typing = False
+# intents.typing = False
 
 log(list(intents))
 client = nextcord.ext.commands.Bot( intents=intents, default_guild_ids=config.server_ids )
@@ -67,13 +64,48 @@ def color( hexstr ):
 def error( interaction, msg = "❎ You don't have permissions to execute this command!" ):
   unawait( interaction.send( embed=nextcord.Embed( title=msg, colour=color('#c800c8') ), ephemeral=True ) )
 
+def generateThreadName( suggestion: str ):
+  name = suggestion
+  
+  name = re.sub(r"<(:[^:]+:)\d{10,}>", r"\1", name)  # replace emojis with their :colon: representation
+  
+  # shorten to set max length if longer than that
+  if len(name) > config.max_threadname_length:
+    ellipsis = "…"
+    name = name[:config.max_threadname_length-len(ellipsis)] + ellipsis
+  
+  return name
+
+async def open_thread( message, reason="4D Bot" ):
+  await message.channel.create_thread( message=message, name=generateThreadName(message.content), reason=reason )
+
+def update_tags( startup=False ):
+  global tags
+  
+  if not startup:
+    with open('tags.json', 'w') as tagsfile:
+      json.dump(tags, tagsfile)
+  
+  try:
+    with open('tags.json', 'r') as tagsfile:
+      tags = json.load(tagsfile)
+  except:
+    tags = {}
+  
+  global tag
+  tag_comand = tag
+  async def tag( interaction, tag: str = Option(description="Choose a tag",choices={ tag:tag for tag in tags }) ):
+    await printtag(interaction,tag)
+  tag_comand.from_callback(tag)
+  tag = tag_comand
+  
+  if not startup:
+    unawait( client.sync_all_application_commands(register_new=startup) )
+
 ############# CREATE ANNOUNCEMENT COMMAND #############
 
 @client.slash_command(description="Create an announcement")
-async def announcement( interaction,
-  title: str = nextcord.SlashOption(description="Set a title", required=True),
-  description: str = nextcord.SlashOption(description="Set a description ( New line = ///)", required=True),
-):
+async def announcement(interaction, title: str = Option(description="Set a title"), description: str = Option(description="Set a description ( New line = ///)") ):
   log(f'/announcement {title.__repr__()} {description.__repr__()}')
   
   if not interaction.user.guild_permissions.manage_messages:
@@ -88,7 +120,7 @@ async def announcement( interaction,
 ############# CREATE POLL COMMAND #############
 
 @client.slash_command(description="Create a poll")
-async def poll( interaction, question: str = nextcord.SlashOption(description="Set a question", required=True) ):
+async def poll(interaction, question: str = Option(description="Set a question") ):
   log(f'/poll {question.__repr__()}')
   
   if not interaction.user.guild_permissions.manage_messages:
@@ -104,10 +136,7 @@ async def poll( interaction, question: str = nextcord.SlashOption(description="S
 ############# CREATE TAG COMMAND #############
 
 @client.slash_command(description="Add a premade message")
-async def createtag( interaction,
-  name: str = nextcord.SlashOption(description="Choose a tag name", required=True),
-  text: str = nextcord.SlashOption(description="Choose a tag output", required=True),
-):
+async def createtag(interaction, name: str = Option(description="Choose a tag name"), text: str = Option(description="Choose a tag output") ):
   log(f'/createtag {name.__repr__()} {text.__repr__()}')
   
   if not interaction.user.guild_permissions.manage_messages:
@@ -119,15 +148,14 @@ async def createtag( interaction,
     return error( interaction, "❎ This tag name is already taken. Try setting a different name." )
   
   tags[name] = text
-  with open('tags.json', 'w') as tagsfile:
-    json.dump(tags, tagsfile)
+  update_tags()
   
   await interaction.send( f"✅ Tag with name **{name}** has been successfully created." )
 
 ############# DELETE TAG COMMAND #############
 
 @client.slash_command(description="Delete a premade message")
-async def deletetag( interaction, name: str = nextcord.SlashOption(description="Choose a tag name", required=True) ):
+async def deletetag(interaction, name: str = Option(description="Choose a tag name") ):
   log(f'/deletetag {name.__repr__()}')
   
   if not interaction.user.guild_permissions.manage_messages:
@@ -139,15 +167,14 @@ async def deletetag( interaction, name: str = nextcord.SlashOption(description="
     return error( interaction, "❎ Invalid tag provided. You can view tags using **/taglist**!" )
   
   tags.pop(name)
-  with open('tags.json', 'w') as tagsfile:
-    json.dump(tags, tagsfile)
+  update_tags()
   
   await interaction.send( f"✅ Tag with name **{name}** has been successfully removed." )
 
 ############# PRINT TAG COMMAND #############
 
-@client.slash_command(description="Premade messages")
-async def tag( interaction, tag: str = nextcord.SlashOption(description="Choose a tag", required=True) ):
+# split off into separate function to make updating the command definition easier
+async def printtag(interaction, tag ):
   log(f'/tag {tag.__repr__()}')
   
   tag = tag.lower()
@@ -157,10 +184,15 @@ async def tag( interaction, tag: str = nextcord.SlashOption(description="Choose 
   
   await interaction.send( tags[tag].replace('---', '\n') )
 
+# this dummy function will get overwritten, only the SlashApplicationCommand object is permanent
+@client.slash_command(description="Send premade messages")
+async def tag(): pass
+update_tags(True)  # fill the callback and options
+
 ############# LIST TAGS COMMAND #############
 
 @client.slash_command(description="View list of premade messages")
-async def taglist( interaction ):
+async def taglist(interaction):
   log(f'/taglist')
   
   str = ""
@@ -170,8 +202,28 @@ async def taglist( interaction ):
   embed = nextcord.Embed( title="Tag List", colour=color('#00c8c8'), description=str )
   await interaction.send(embed=embed)
 
+############# RENAME THREAD COMMAND #############
+
+@client.slash_command(description="Rename a thread created by 4D Bot")
+async def rename_thread(interaction, name: str = Option(description="New name") ):
+  log(f'/rename_thread {name.__repr__()}')
+  
+  if not isinstance( interaction.channel, nextcord.Thread ):
+    return error( interaction, "❎ Command can only be used in threads!" )
+  thread = interaction.channel
+  
+  if thread.owner != client.user:
+    return error( interaction, "❎ Command can only be used in threads opened by 4D Bot!" )
+  
+  name = generateThreadName(name)
+  
+  unawait( interaction.send( f"✎ Thread renamed from '{thread.name}' to '{name}'\n(hopefully - discord thread renaming is unreliable )" ) )
+  
+  await thread.edit(name=name)
+
 ############# CREATE THREAD ON 🧵 EMOJI #############
 
+# """
 @client.listen('on_raw_reaction_add')
 async def create_tread_on_tread_emoji(reaction):
   
@@ -192,7 +244,8 @@ async def create_tread_on_tread_emoji(reaction):
   unawait( message.remove_reaction(reaction.emoji,reaction.member) )
   unawait( message.add_reaction(reaction.emoji) )
   
-  await channel.create_thread( message=message, name=message.content[:96] +"...", reason="4D Bot - 🧵 emoji" )
+  await open_thread( message=message, reason="4D Bot - 🧵 emoji" )
+# """
 
 ############# REPORT ON 🚨 EMOJI #############
 
@@ -222,7 +275,7 @@ async def report_on_alarm_emoji(reaction):
   embed.add_field( name="Reported by", value=str(reaction.member) )
   await client.get_partial_messageable(config.reports_channel).send(embed=embed)
 
-############# ADD VOTE EMOJI FOR SUGGESTIONS #############
+############# ADD VOTE EMOJI AND THREAD FOR SUGGESTIONS #############
 
 # add default emoji reactions
 @client.listen('on_message')
@@ -242,22 +295,53 @@ async def suggestions_default_emoji(message):
   
   unawait( react( message, config.suggestions_default_emoji ) )
   
-  # await message.channel.create_thread( message=message, name=message.content[:96] +"...", reason="4D Bot - autoThread in #suggestions" )
+  await open_thread( message=message, reason="4D Bot - autoThread in #suggestions" )
 
 ############# REMOVE THREAD CREATION NOTICES #############
 
-usr_cooldowns = {}
 @client.listen('on_message')
 async def remove_thread_creation_notices(message):
+  
   if message.type == nextcord.MessageType.thread_created:
     await message.delete()
+    return
+  
+  # if message.type == nextcord.MessageType.channel_name_change:
+  #   if message.author == client.user:
+  #     await message.delete()
+  #   return
+
+############# BACKUP FOR MOST IMPORTANT SYSTEM OF THE 4D LEVELING BOT #############
+
+@client.listen('on_message')
+async def operationCounterEEP(message):
+  eep = f'{chr(0x6d)}eep'  # the accursed word
+  allowedEEPpercent = 0.15
+  
+  # # only affect anith and test acount
+  # if not ( message.author.id == 411317904081027072 or message.author.id == 933495055895912448 ):
+  #   return
+  
+  content = message.content
+  content = re.sub("<:"+eep+":\\d{10,}>", eep, content)  # replace eep emojis with normal eeps for more realistic evaluation
+  
+  # only affect messages that are primarily (>20%) eeps
+  if not len(content) < 4/allowedEEPpercent * content.lower().count( eep ):
+    return
+  
+  try:
+    emoji = [ emoji for emoji in await message.guild.fetch_emojis() if emoji.name == 'shut' ][0]
+  except: return
+  
+  await message.add_reaction(emoji)
+  log('Shut')
 
 ############# CRON #############
 
 # minimum frequency is 1 minute
 cronjobs = [
   { 'name': "update activity", 'frequencySeconds': 60, 'nextrun': 0, 'function': lambda:
-    unawait( client.change_presence(activity=nextcord.Activity( name=f"{len(client.guilds[0].members)} players", type=nextcord.ActivityType.watching )) ) },
+    unawait( client.change_presence(activity=nextcord.Activity( name=f"{sum(guild.member_count for guild in client.guilds)} players", type=nextcord.ActivityType.watching )) ) },
 ]
 
 @client.listen('on_ready')
