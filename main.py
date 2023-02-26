@@ -1,3 +1,5 @@
+#!/usr/bin/python3
+
 import nextcord, nextcord.ext.commands
 from nextcord import SlashOption as Option
 
@@ -69,6 +71,8 @@ def generateThreadName( suggestion: str ):
   
   name = re.sub(r"<(:[^:]+:)\d{10,}>", r"\1", name)  # replace emojis with their :colon: representation
   
+  name = name[:name.find('\n')]  # if name contains newline, cut off at that point, i.e. only include first 'paragraph'
+  
   # shorten to set max length if longer than that
   if len(name) > config.max_threadname_length:
     ellipsis = "…"
@@ -92,12 +96,17 @@ def update_tags( startup=False ):
   except:
     tags = {}
   
-  global tag
-  tag_comand = tag
-  async def tag( interaction, tag: str = Option(description="Choose a tag",choices={ tag:tag for tag in tags }) ):
+  global tag, deletetag
+  
+  async def new_tag( interaction, tag: str = Option(description="Choose a tag",choices=tuple(tags)) ):
     await printtag(interaction,tag)
-  tag_comand.from_callback(tag)
-  tag = tag_comand
+  new_tag.__name__ = 'tag'
+  tag.from_callback(new_tag)
+  
+  async def new_deletetag( interaction, tag: str = Option(description="Choose a tag",choices=tuple(tags)) ):
+    await dodeletetag(interaction,tag)
+  new_deletetag.__name__ = 'deletetag'
+  deletetag.from_callback(new_deletetag)
   
   if not startup:
     unawait( client.sync_all_application_commands(register_new=startup) )
@@ -106,7 +115,7 @@ def update_tags( startup=False ):
 
 @client.slash_command(description="Create an announcement")
 async def announcement(interaction, title: str = Option(description="Set a title"), description: str = Option(description="Set a description ( New line = ///)") ):
-  log(f'/announcement {title.__repr__()} {description.__repr__()}')
+  log(f'/announcement {repr(title)} {repr(description)}')
   
   if not interaction.user.guild_permissions.manage_messages:
     return error( interaction )
@@ -121,7 +130,7 @@ async def announcement(interaction, title: str = Option(description="Set a title
 
 @client.slash_command(description="Create a poll")
 async def poll(interaction, question: str = Option(description="Set a question") ):
-  log(f'/poll {question.__repr__()}')
+  log(f'/poll {repr(question)}')
   
   if not interaction.user.guild_permissions.manage_messages:
     return error( interaction )
@@ -137,76 +146,54 @@ async def poll(interaction, question: str = Option(description="Set a question")
 
 @client.slash_command(description="Add a premade message")
 async def createtag(interaction, name: str = Option(description="Choose a tag name"), text: str = Option(description="Choose a tag output") ):
-  log(f'/createtag {name.__repr__()} {text.__repr__()}')
+  log(f'/createtag {repr(name)} {repr(text)}')
   
   if not interaction.user.guild_permissions.manage_messages:
     return error(interaction)
   
-  name = name.lower()
+  # name = name.lower()
   
   if name in tags:
-    return error( interaction, "❎ This tag name is already taken. Try setting a different name." )
+    return error( interaction, "❎ This tagname is already taken. Try setting a different name." )
   
   tags[name] = text
   update_tags()
   
-  await interaction.send( f"✅ Tag with name **{name}** has been successfully created." )
+  await interaction.send( f"✅ Tag **{name}** has been successfully created." )
 
-############# DELETE TAG COMMAND #############
+############# PRINT & DELETE TAG COMMANDS (WITH DYNAMIC SELECTION DROPDOWN) #############
 
-@client.slash_command(description="Delete a premade message")
-async def deletetag(interaction, name: str = Option(description="Choose a tag name") ):
-  log(f'/deletetag {name.__repr__()}')
+# split off into separate functions to make updating the commands definitions easier
+async def printtag(interaction, tag ):
+  log(f'/tag {repr(tag)}')
+  
+  await interaction.send( tags[tag].replace('---', '\n') )
+
+async def dodeletetag(interaction, tag ):
+  log(f'/deletetag {repr(tag)}')
   
   if not interaction.user.guild_permissions.manage_messages:
     return error(interaction)
   
-  name = name.lower()
-  
-  if name not in tags:
-    return error( interaction, "❎ Invalid tag provided. You can view tags using **/taglist**!" )
-  
-  tags.pop(name)
+  tags.pop(tag)
   update_tags()
   
-  await interaction.send( f"✅ Tag with name **{name}** has been successfully removed." )
+  await interaction.send( f"✅ Tag **{tag}** has been successfully removed." )
 
-############# PRINT TAG COMMAND #############
-
-# split off into separate function to make updating the command definition easier
-async def printtag(interaction, tag ):
-  log(f'/tag {tag.__repr__()}')
-  
-  tag = tag.lower()
-  
-  if tag not in tags:
-    return error( interaction, "❎ Invalid tag provided. You can view tags using **/taglist**!" )
-  
-  await interaction.send( tags[tag].replace('---', '\n') )
-
-# this dummy function will get overwritten, only the SlashApplicationCommand object is permanent
+# these dummy functions will get overwritten, only the SlashApplicationCommand objects are permanent
 @client.slash_command(description="Send premade messages")
 async def tag(): pass
+@client.slash_command(description="Delete a premade message")
+async def deletetag(): pass
+
 update_tags(True)  # fill the callback and options
 
-############# LIST TAGS COMMAND #############
-
-@client.slash_command(description="View list of premade messages")
-async def taglist(interaction):
-  log(f'/taglist')
-  
-  str = ""
-  for tagid, tagname in enumerate(tags, start=1):
-    str += f'**#{tagid}** {tagname}\n'
-  
-  embed = nextcord.Embed( title="Tag List", colour=color('#00c8c8'), description=str )
-  await interaction.send(embed=embed)
 
 ############# RENAME THREAD COMMAND #############
 
 @client.slash_command(description="Rename a thread created by 4D Bot")
 async def rename_thread(interaction, name: str = Option(description="New name") ):
-  log(f'/rename_thread {name.__repr__()}')
+  log(f'/rename_thread {repr(name)}')
   
   if not isinstance( interaction.channel, nextcord.Thread ):
     return error( interaction, "❎ Command can only be used in threads!" )
@@ -338,7 +325,7 @@ async def operationCounterEEP(message):
 
 ############# CRON #############
 
-# minimum frequency is 1 minute
+cron_minfreq = 60  # cron checks for due tasks every this many seconds
 cronjobs = [
   { 'name': "update activity", 'frequencySeconds': 60, 'nextrun': 0, 'function': lambda:
     unawait( client.change_presence(activity=nextcord.Activity( name=f"{sum(guild.member_count for guild in client.guilds)} players", type=nextcord.ActivityType.watching )) ) },
@@ -352,12 +339,12 @@ async def cron():
     
     for cronjob in cronjobs:
       if cronjob['nextrun'] <= time.time():
-        cronjob['nextrun'] = time.time() + cronjob['frequencySeconds']
+        cronjob['nextrun'] = time.time() + cronjob['frequencySeconds'] - cron_minfreq/10  # some leeway for rounding etc.
         cronjob['function']()
         log(f"ran {cronjob['name']}")
     
     try:
-      if not client.is_closed(): await client.wait_for( 'close', timeout=60 )
+      if not client.is_closed(): await client.wait_for( 'close', timeout=cron_minfreq )
       break
     except: pass
   
@@ -366,3 +353,16 @@ async def cron():
 ############# STARTUP AND SHUTDOWN #############
 
 client.run(config.bot_api_key)
+
+
+"""
+  TODO:
+    - When reportet ask the mod for a reason and then inform the user of the report with the reason or after a 1h timeout
+    - smarter thread names
+    - revive #welcome
+    - thread pin message command
+    - give /deletetag a dropdown list too
+    - check if that command chapter thing makes the command parameter visible when invoked
+      -> seem to show up individually in the command list. Look for way to not have that happen
+    - images break autothread in suggestions?
+"""
