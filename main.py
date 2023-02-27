@@ -3,10 +3,11 @@
 import nextcord, nextcord.ext.commands
 from nextcord import SlashOption as Option
 
-import time
+from time import time
 from asyncio import create_task as unawait
 import json
 import re
+import random
 
 import settings as config  # also api keys
 
@@ -77,6 +78,9 @@ def generateThreadName( suggestion: str ):
   if len(name) > config.max_threadname_length:
     ellipsis = "…"
     name = name[:config.max_threadname_length-len(ellipsis)] + ellipsis
+  
+  if not name:
+    name = "_"
   
   return name
 
@@ -298,6 +302,12 @@ async def remove_thread_creation_notices(message):
   #     await message.delete()
   #   return
 
+############# WELCOME NEW 4D PEOPLE #############
+
+@client.listen('on_member_join')
+async def welcome_new(member):
+  await client.get_partial_messageable(config.welcome_channel).send( random.choice(config.welcome_messages).format(member) )
+
 ############# BACKUP FOR MOST IMPORTANT SYSTEM OF THE 4D LEVELING BOT #############
 
 @client.listen('on_message')
@@ -327,19 +337,22 @@ async def operationCounterEEP(message):
 
 cron_minfreq = 60  # cron checks for due tasks every this many seconds
 cronjobs = [
-  { 'name': "update activity", 'frequencySeconds': 60, 'nextrun': 0, 'function': lambda:
-    unawait( client.change_presence(activity=nextcord.Activity( name=f"{sum(guild.member_count for guild in client.guilds)} players", type=nextcord.ActivityType.watching )) ) },
+  { 'name': "update activity", 'frequencySeconds': 60, 'function': lambda: unawait(
+    client.change_presence(activity=nextcord.Activity( type=nextcord.ActivityType.watching, name=f"{sum(guild.member_count for guild in client.guilds)} players" ))
+  )},
 ]
 
 @client.listen('on_ready')
 async def cron():
+  client.remove_listener( cron, 'on_ready' )  # stop more crons spawning on connection loss & restore
+  
   print('Ready. Starting internal Cron')
   
   while not client.is_closed():  # check is_closed in case we missed the on_close event
     
     for cronjob in cronjobs:
-      if cronjob['nextrun'] <= time.time():
-        cronjob['nextrun'] = time.time() + cronjob['frequencySeconds'] - cron_minfreq/10  # some leeway for rounding etc.
+      if cronjob.get('nextrun',0) <= time():
+        cronjob['nextrun'] = time() + cronjob['frequencySeconds'] - cron_minfreq/10  # some leeway for rounding etc.
         cronjob['function']()
         log(f"ran {cronjob['name']}")
     
@@ -359,10 +372,7 @@ client.run(config.bot_api_key)
   TODO:
     - When reportet ask the mod for a reason and then inform the user of the report with the reason or after a 1h timeout
     - smarter thread names
-    - revive #welcome
     - thread pin message command
-    - give /deletetag a dropdown list too
     - check if that command chapter thing makes the command parameter visible when invoked
       -> seem to show up individually in the command list. Look for way to not have that happen
-    - images break autothread in suggestions?
 """
