@@ -67,17 +67,27 @@ def color( hexstr ):
 def error( interaction, msg = "❎ You don't have permissions to execute this command!" ):
   unawait( interaction.send( embed=nextcord.Embed( title=msg, colour=color('#c800c8') ), ephemeral=True ) )
 
-def generateThreadName( suggestion: str ):
-  name = suggestion
+def generateThreadName( name: str ):
+  maxlen = config.max_threadname_length
+  ellipsis = "…"
+  wordellipsiswindow = maxlen//10
   
-  name = re.sub(r"<(:[^:]+:)\d{10,}>", r"\1", name)  # replace emojis with their :colon: representation
+  # replace discord emojis (<:name:id>) with :name:
+  name = re.sub(r"<(:[^:]+:)\d{10,}>", r"\1", name)
   
-  name = name[:name.find('\n')]  # if name contains newline, cut off at that point, i.e. only include first 'paragraph'
+  # only use first 'paragraph'
+  if '\n' in name:
+    name = name[:name.find('\n')]
   
   # shorten to set max length if longer than that
-  if len(name) > config.max_threadname_length:
-    ellipsis = "…"
-    name = name[:config.max_threadname_length-len(ellipsis)] + ellipsis
+  if len(name) > maxlen:
+    name = name[:maxlen-len(ellipsis)]
+    
+    # if you find a space in the last section of the string, ellipse after that (to not break words)
+    if ' ' in name[-wordellipsiswindow:]:
+      name = name[:name.rfind(' ')+1]
+    
+    name += ellipsis
   
   if not name:
     name = "_"
