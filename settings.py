@@ -16,6 +16,8 @@ welcome_messages = [
   "Hey **{}**, welcome to the best 4D Discord Server!",
 ]
 
+suggestions_info_msg_tagname = 'suggestions info message'
+
 max_threadname_length = 100  # 100 is discord limit
 
 debug = False
