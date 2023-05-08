@@ -43,6 +43,9 @@ async def get_channel(channel_id):
   
   return channel
 
+def get_partial_channel(channel_id):
+  return client.get_partial_messageable(channel_id,type=nextcord.ChannelType.text)
+
 async def react( message, emoji_names ):
   
   emojis = await message.guild.fetch_emojis()
@@ -97,33 +100,50 @@ def generateThreadName( name: str ):
 async def open_thread( message, reason="4D Bot" ):
   await message.channel.create_thread( message=message, name=generateThreadName(message.content), reason=reason )
 
-def update_tags( startup=False ):
+def save_tags():
   global tags
-  
-  if not startup:
-    with open('tags.json', 'w') as tagsfile:
-      json.dump(tags, tagsfile)
-  
+  with open('tags.json', 'w') as tagsfile:
+    json.dump(tags, tagsfile)
+
+def read_tags():
   try:
     with open('tags.json', 'r') as tagsfile:
       tags = json.load(tagsfile)
   except:
     tags = {}
   
-  global tag, deletetag
+  if config.suggestions_info_msg_tagname not in tags:
+    tags[config.suggestions_info_msg_tagname] = 'Placeholder.'
   
-  async def new_tag( interaction, tag: str = Option(description="Choose a tag",choices=tuple(tags)) ):
+  # for migration only  TODO: remove
+  for tag in tags: tags[tag] = tags[tag].replace('---', '\n')
+  
+  return tags
+
+def update_tags( startup=False ):
+  global tags
+  
+  # skip writing tags to file on startup (as current tags will be empty)
+  if not startup:
+    save_tags()
+  
+  tags = read_tags()
+  
+  async def tag( interaction, tag: str = Option(description="Choose a tag",choices=tuple(tags)) ):
     await printtag(interaction,tag)
-  new_tag.__name__ = 'tag'
-  tag.from_callback(new_tag)
+  globals()['tag'].from_callback(tag)
   
-  async def new_deletetag( interaction, tag: str = Option(description="Choose a tag",choices=tuple(tags)) ):
+  async def edittag( interaction, tag: str = Option(description="Choose a tag",choices=tuple(tags)), text: str = Option(description="Choose the new tag output") ):
+    await do_edittag(interaction,tag,text)
+  globals()['edittag'].from_callback(edittag)
+  
+  async def deletetag( interaction, tag: str = Option(description="Choose a tag",choices=tuple(tags)) ):
     await dodeletetag(interaction,tag)
-  new_deletetag.__name__ = 'deletetag'
-  deletetag.from_callback(new_deletetag)
+  globals()['deletetag'].from_callback(deletetag)
+  
   
   if not startup:
-    unawait( client.sync_all_application_commands(register_new=startup) )
+    unawait( client.sync_all_application_commands(register_new=False) )
 
 ############# CREATE ANNOUNCEMENT COMMAND #############
 
@@ -170,6 +190,8 @@ async def createtag(interaction, name: str = Option(description="Choose a tag na
   if name in tags:
     return error( interaction, "❎ This tagname is already taken. Try setting a different name." )
   
+  text = text.replace('---', '\n')
+  
   tags[name] = text
   update_tags()
   
@@ -181,13 +203,30 @@ async def createtag(interaction, name: str = Option(description="Choose a tag na
 async def printtag(interaction, tag ):
   log(f'/tag {repr(tag)}')
   
-  await interaction.send( tags[tag].replace('---', '\n') )
+  await interaction.send( tags[tag] )
+
+async def do_edittag(interaction, tag, text ):
+  log(f'/edittag {repr(tag)} {repr(text)}')
+  
+  if not interaction.user.guild_permissions.manage_messages:
+    return error(interaction)
+  
+  tags[tag] = text
+  save_tags()
+  
+  if tag == config.suggestions_info_msg_tagname:
+    unawait( refresh_info_msg() )
+  
+  await interaction.send( f"✅ Tag **{tag}** has been successfully edited." )
 
 async def dodeletetag(interaction, tag ):
   log(f'/deletetag {repr(tag)}')
   
   if not interaction.user.guild_permissions.manage_messages:
     return error(interaction)
+  
+  if tag == config.suggestions_info_msg_tagname:
+    return error(interaction,msg=f"❎ You can't delete the {config.suggestions_info_msg_tagname}!")
   
   tags.pop(tag)
   update_tags()
@@ -197,6 +236,8 @@ async def dodeletetag(interaction, tag ):
 # these dummy functions will get overwritten, only the SlashApplicationCommand objects are permanent
 @client.slash_command(description="Send premade messages")
 async def tag(): pass
+@client.slash_command(description="Edit a premade message")
+async def edittag(): pass
 @client.slash_command(description="Delete a premade message")
 async def deletetag(): pass
 
@@ -316,7 +357,56 @@ async def remove_thread_creation_notices(message):
 
 @client.listen('on_member_join')
 async def welcome_new(member):
-  await client.get_partial_messageable(config.welcome_channel).send( random.choice(config.welcome_messages).format(member) )
+  print(f'New member: {member}')
+  unawait( client.get_partial_messageable(955220937995874334    ).send( random.choice(config.welcome_messages).format(member) ) )
+  unawait( client.get_partial_messageable(config.welcome_channel).send( random.choice(config.welcome_messages).format(member) ) )
+  # await client.get_partial_messageable(config.welcome_channel).send( random.choice(config.welcome_messages).format(member) )
+
+############# KEEP INFO MESSAGE AT BOTTOM OF SUGGESTIONS CHANNEL #############
+
+# holder of current infomessage
+suggestions_info_msg = None
+
+# fetch message id on startup
+@client.listen('on_ready')
+async def getLastInfomsg():
+  global suggestions_info_msg
+  
+  suggestions_info_msg = await get_partial_channel(config.suggestions_channel).history(limit=100).get(author=client.user,content=tags[config.suggestions_info_msg_tagname])
+  if suggestions_info_msg is None:
+    print("Couldn't find last info message, might create duplicate!")
+  else:
+    log(f"Found last infomessage: {suggestions_info_msg.id}")
+
+async def refresh_info_msg():
+  global suggestions_info_msg
+  
+  # Delete the old info message if it exists
+  if suggestions_info_msg is not None:
+    unawait( suggestions_info_msg.delete() )
+  
+  # Send the new info message
+  suggestions_info_msg = await get_partial_channel(config.suggestions_channel).send(tags[config.suggestions_info_msg_tagname])
+
+@client.listen('on_message')
+async def suggInfo(message):
+  
+  # Only in suggestions channel
+  if message.channel.id != config.suggestions_channel:
+    return
+  
+  # Ignore what will be deleted
+  if message.type == nextcord.MessageType.thread_created:
+    return
+  
+  if message.flags.ephemeral:
+    return
+  
+  # Ignore this message itself
+  if message == suggestions_info_msg or (message.author == client.user and message.content == tags[config.suggestions_info_msg_tagname]):
+    return
+  
+  unawait( refresh_info_msg() )
 
 ############# BACKUP FOR MOST IMPORTANT SYSTEM OF THE 4D LEVELING BOT #############
 
@@ -332,15 +422,11 @@ async def operationCounterEEP(message):
   content = message.content
   content = re.sub("<:"+eep+":\\d{10,}>", eep, content)  # replace eep emojis with normal eeps for more realistic evaluation
   
-  # only affect messages that are primarily (>20%) eeps
-  if not len(content) < 4/allowedEEPpercent * content.lower().count( eep ):
+  # only affect messages that are primarily (> allowedEEPpercent) eeps
+  if not len(content)*allowedEEPpercent < len(eep) * content.lower().count( eep ):
     return
   
-  try:
-    emoji = [ emoji for emoji in await message.guild.fetch_emojis() if emoji.name == 'shut' ][0]
-  except: return
-  
-  await message.add_reaction(emoji)
+  await message.add_reaction( nextcord.utils.get(message.guild.emojis,name='shut') )
   log('Shut')
 
 ############# CRON #############
@@ -380,9 +466,16 @@ client.run(config.bot_api_key)
 
 """
   TODO:
-    - When reportet ask the mod for a reason and then inform the user of the report with the reason or after a 1h timeout
+    - When reported, ask the mod for a reason and then inform the user of the report with the reason or after a 1h timeout
     - smarter thread names
+      -> look for sentence end markers
     - thread pin message command
+    - eep replace cyrillic letters, remove zerowidth chars
+    - prevent sending links in useraccessible texts, like thread names from user messages
+    - 6d chess
+    
+  TODO (far future, recheck periodically):
     - check if that command chapter thing makes the command parameter visible when invoked
       -> seem to show up individually in the command list. Look for way to not have that happen
+        -> probably not possible rn :(
 """
