@@ -4,9 +4,10 @@ import nextcord, nextcord.ext.commands
 from nextcord import SlashOption as Option
 
 from time import time
-from asyncio import create_task as unawait
+from asyncio import create_task as unawait, gather
 import json
 import re
+import unicodedata
 import random
 
 import settings as config  # also api keys
@@ -24,7 +25,7 @@ intents.members = True
 # intents.typing = False
 
 log(list(intents))
-client = nextcord.ext.commands.Bot( intents=intents, default_guild_ids=config.server_ids )
+client = nextcord.ext.commands.Bot( command_prefix='!', intents=intents, default_guild_ids=config.server_ids )
 
 ############# LIBRARY #############
 
@@ -115,9 +116,6 @@ def read_tags():
   if config.suggestions_info_msg_tagname not in tags:
     tags[config.suggestions_info_msg_tagname] = 'Placeholder.'
   
-  # for migration only  TODO: remove
-  for tag in tags: tags[tag] = tags[tag].replace('---', '\n')
-  
   return tags
 
 def update_tags( startup=False ):
@@ -157,7 +155,7 @@ async def announcement(interaction, title: str = Option(description="Set a title
   description = description.replace("///", "\n")
   
   embed = nextcord.Embed( title=title, colour=color('#fee65c'), description=description )
-  embed.set_footer( text=f"Made by: {interaction.user}", icon_url=interaction.user.avatar.url )
+  embed.set_footer( text=f"Made by: {interaction.user.name}", icon_url=interaction.user.avatar.url )
   await interaction.send(embed=embed)
 
 ############# CREATE POLL COMMAND #############
@@ -170,9 +168,9 @@ async def poll(interaction, question: str = Option(description="Set a question")
     return error( interaction )
   
   embed = nextcord.Embed( title="4D Poll", colour=color('#00c8c8'), description=question )
-  embed.set_footer( text=f"Made by: {interaction.user}", icon_url=interaction.user.avatar.url )
+  embed.set_footer( text=f"Made by: {interaction.user.name}", icon_url=interaction.user.avatar.url )
   
-  message = await (await interaction.send( embed=embed )).fetch()
+  message = await ( await interaction.send(embed=embed) ).fetch()
   
   await react( message, config.poll_default_emoji )
 
@@ -197,7 +195,7 @@ async def createtag(interaction, name: str = Option(description="Choose a tag na
   
   await interaction.send( f"✅ Tag **{name}** has been successfully created." )
 
-############# PRINT & DELETE TAG COMMANDS (WITH DYNAMIC SELECTION DROPDOWN) #############
+############# PRINT, EDIT, DELETE TAG COMMANDS (WITH DYNAMIC SELECTION DROPDOWN) #############
 
 # split off into separate functions to make updating the commands definitions easier
 async def printtag(interaction, tag ):
@@ -243,7 +241,6 @@ async def deletetag(): pass
 
 update_tags(True)  # fill the callback and options
 
-
 ############# RENAME THREAD COMMAND #############
 
 @client.slash_command(description="Rename a thread created by 4D Bot")
@@ -263,11 +260,63 @@ async def rename_thread(interaction, name: str = Option(description="New name") 
   
   await thread.edit(name=name)
 
+############# PIN COMMENT IN THREAD COMMAND #############
+
+@client.command(help="Pin the replied to message (only in 4D Bot created threads)")
+async def pin(context):
+  log(f'!pin')
+  
+  thread = context.channel
+  if not isinstance( thread, nextcord.Thread ):
+    return
+    # return error( context, "❎ Command can only be used in threads!" )
+  
+  if thread.owner != client.user:
+    return
+    # return error( context, "❎ Command can only be used in threads opened by 4D Bot!" )
+  
+  if not context.message.reference:
+    return
+    # return error( context, "Please reply to a message to pin it." )
+  
+  unawait( context.message.delete() )
+  
+  target = await thread.fetch_message(context.message.reference.message_id)
+  
+  if not target.pinned:
+    await target.pin()
+  else:
+    unawait( target.unpin() )
+    await thread.send(f'<@{context.author.id}> unpinned a message ({target.jump_url}) from this channel.',allowed_mentions=nextcord.AllowedMentions.none())
+
+############# EXPORT DATA COMMAND #############
+
+files = ['tags.json']
+
+@client.slash_command(description="Export the datafiles of 4D Bot")
+async def export(interaction):
+  log(f'/export')
+  
+  for filename in files:
+    with open(filename,'rb') as file:
+      dcfile = nextcord.File(file,force_close=True)
+    
+    await interaction.send(file=dcfile)
+
+@client.command(help="Export the datafiles of 4D Bot")
+async def export(context):
+  log(f'!export')
+  
+  for filename in files:
+    with open(filename,'rb') as file:
+      dcfile = nextcord.File(file,force_close=True)
+    
+    await context.reply(file=dcfile)
+
 ############# CREATE THREAD ON 🧵 EMOJI #############
 
-# """
 @client.listen('on_raw_reaction_add')
-async def create_tread_on_tread_emoji(reaction):
+async def create_thread_on_thread_emoji(reaction):
   
   if (reaction.emoji.name != '🧵'):
     return
@@ -276,8 +325,15 @@ async def create_tread_on_tread_emoji(reaction):
   if reaction.channel_id != config.suggestions_channel:
     return
   
-  channel = await get_channel(reaction.channel_id)
-  message = await channel.fetch_message(reaction.message_id)
+  # not the bot itself (to stop infinite loops)
+  if reaction.member == client.user:
+    return
+  
+  channel, message = await gather(
+    get_channel(reaction.channel_id),  # needed for create_thread
+    client.get_partial_messageable(reaction.channel_id,type=nextcord.ChannelType.text).fetch_message(reaction.message_id),
+  )
+  message.channel = channel
   
   # we already have a thread
   if not message.thread is None:
@@ -287,7 +343,6 @@ async def create_tread_on_tread_emoji(reaction):
   unawait( message.add_reaction(reaction.emoji) )
   
   await open_thread( message=message, reason="4D Bot - 🧵 emoji" )
-# """
 
 ############# REPORT ON 🚨 EMOJI #############
 
@@ -313,9 +368,9 @@ async def report_on_alarm_emoji(reaction):
   message = await message.fetch()
   
   embed = nextcord.Embed( title="Reported Message", description=f"[Message link]({message.jump_url})", colour=None )
-  embed.add_field( name="Message Author", value=str(message.author) )
-  embed.add_field( name="Reported by", value=str(reaction.member) )
-  await client.get_partial_messageable(config.reports_channel).send(embed=embed)
+  embed.add_field( name="Message Author", value=f'<@{message.author.id}>' )
+  embed.add_field( name="Reported by", value=f'<@{reaction.member.id}>' )
+  await client.get_partial_messageable(config.reports_channel).send(embed=embed,allowed_mentions=nextcord.AllowedMentions.none())
 
 ############# ADD VOTE EMOJI AND THREAD FOR SUGGESTIONS #############
 
@@ -357,10 +412,10 @@ async def remove_thread_creation_notices(message):
 
 @client.listen('on_member_join')
 async def welcome_new(member):
-  print(f'New member: {member}')
-  unawait( client.get_partial_messageable(955220937995874334    ).send( random.choice(config.welcome_messages).format(member) ) )
-  unawait( client.get_partial_messageable(config.welcome_channel).send( random.choice(config.welcome_messages).format(member) ) )
-  # await client.get_partial_messageable(config.welcome_channel).send( random.choice(config.welcome_messages).format(member) )
+  log(f'New member: {member}')
+  
+  unawait( client.get_partial_messageable(955220937995874334 ).send( random.choice(config.welcome_messages).format(f'<@{member.id}>'), allowed_mentions=nextcord.AllowedMentions.none() ) )
+  await client.get_partial_messageable(config.welcome_channel).send( random.choice(config.welcome_messages).format(f'<@{member.id}>'), allowed_mentions=nextcord.AllowedMentions.none() )
 
 ############# KEEP INFO MESSAGE AT BOTTOM OF SUGGESTIONS CHANNEL #############
 
@@ -415,15 +470,13 @@ async def operationCounterEEP(message):
   eep = f'{chr(0x6d)}eep'  # the accursed word
   allowedEEPpercent = 0.15
   
-  # # only affect anith and test acount
-  # if not ( message.author.id == 411317904081027072 or message.author.id == 933495055895912448 ):
-  #   return
-  
   content = message.content
   content = re.sub("<:"+eep+":\\d{10,}>", eep, content)  # replace eep emojis with normal eeps for more realistic evaluation
+  content = "".join(ch for ch in content if unicodedata.category(ch) not in {'Cf','Mn'})  # remove zero width characters
+  content = content.lower().replace('е','e').replace('р','p')  # don't get fooled by cyrillics
   
   # only affect messages that are primarily (> allowedEEPpercent) eeps
-  if not len(content)*allowedEEPpercent < len(eep) * content.lower().count( eep ):
+  if not len(content)*allowedEEPpercent < len(eep) * content.count( eep ):
     return
   
   await message.add_reaction( nextcord.utils.get(message.guild.emojis,name='shut') )
@@ -469,8 +522,6 @@ client.run(config.bot_api_key)
     - When reported, ask the mod for a reason and then inform the user of the report with the reason or after a 1h timeout
     - smarter thread names
       -> look for sentence end markers
-    - thread pin message command
-    - eep replace cyrillic letters, remove zerowidth chars
     - prevent sending links in useraccessible texts, like thread names from user messages
     - 6d chess
     
