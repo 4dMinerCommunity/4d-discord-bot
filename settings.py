@@ -5,7 +5,7 @@ server_ids = [954156776671043625]
 
 suggestions_channel = 956667255846993950
 reports_channel = 973645451347767346
-welcome_channel = 955240591875276820
+welcome_channel = 955220937995874334
 
 suggestions_default_emoji = ['4DUpvote', '4DDownvote']
 poll_default_emoji = ['4DUpvote', '4DDownvote']
