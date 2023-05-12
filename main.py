@@ -414,7 +414,6 @@ async def remove_thread_creation_notices(message):
 async def welcome_new(member):
   log(f'New member: {member}')
   
-  unawait( client.get_partial_messageable(955220937995874334 ).send( random.choice(config.welcome_messages).format(f'<@{member.id}>'), allowed_mentions=nextcord.AllowedMentions.none() ) )
   await client.get_partial_messageable(config.welcome_channel).send( random.choice(config.welcome_messages).format(f'<@{member.id}>'), allowed_mentions=nextcord.AllowedMentions.none() )
 
 ############# KEEP INFO MESSAGE AT BOTTOM OF SUGGESTIONS CHANNEL #############
