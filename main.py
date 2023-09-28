@@ -388,9 +388,9 @@ async def popular_channel(reaction: nextcord.RawReactionActionEvent):
       continue
 
     if emoji == config.suggestions_default_emoji[0]:
-      positive += 1
+      positive += msg_reaction.count
     elif emoji == config.suggestions_default_emoji[1]:
-      negative -= 1
+      negative -= msg_reaction.count
   net_upvote = positive + negative
   
   if not ( net_upvote >= config.net_upvote_requirement ): 
