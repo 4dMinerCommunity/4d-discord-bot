@@ -81,7 +81,10 @@ def generateThreadName( name: str ):
   
   # replace discord emojis (<:name:id>) with :name:
   name = re.sub(r"<(:[^:]+:)\d{10,}>", r"\1", name)
-  
+
+  return generateName(name, maxlen)
+
+def generateName(name, maxlen):
   # only use first 'paragraph'
   if '\n' in name:
     name = name[:name.find('\n')]
@@ -100,6 +103,9 @@ def generateThreadName( name: str ):
     name = "_"
   
   return name
+
+def generateTopSugBody(name):
+  return generateName(name, 2500)
 
 async def open_thread( message, reason="4D Bot" ) -> nextcord.Thread:
   return await message.channel.create_thread( message=message, name=generateThreadName(message.content), reason=reason )
@@ -396,7 +402,7 @@ async def popular_channel(reaction: nextcord.RawReactionActionEvent):
   if not ( net_upvote >= config.net_upvote_requirement ): 
     return
   
-  embed = nextcord.Embed(title= f"Go to Suggestion", description=generateThreadName(message.content), url=message.jump_url) \
+  embed = nextcord.Embed(title= f"Go to Suggestion", description=generateTopSugBody(message.content), url=message.jump_url) \
     .add_field(name='\u200b', value='\u200b')                                                                               \
     .set_author(name=message.author.name, icon_url=message.author.avatar.url)                                               \
     .set_footer(text=f"+{net_upvote} ({positive}|{negative})")                                                              
