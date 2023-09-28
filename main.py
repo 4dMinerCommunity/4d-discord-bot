@@ -101,8 +101,8 @@ def generateThreadName( name: str ):
   
   return name
 
-async def open_thread( message, reason="4D Bot" ):
-  await message.channel.create_thread( message=message, name=generateThreadName(message.content), reason=reason )
+async def open_thread( message, reason="4D Bot" ) -> nextcord.Thread:
+  return await message.channel.create_thread( message=message, name=generateThreadName(message.content), reason=reason )
 
 def read_tags():
   tags = {}
@@ -310,7 +310,7 @@ async def pin(context):
 ############# CREATE THREAD ON 🧵 EMOJI #############
 
 @client.listen('on_raw_reaction_add')
-async def create_thread_on_thread_emoji(reaction):
+async def create_thread_on_thread_emoji(reaction: nextcord.Reaction):
   
   if (reaction.emoji.name != '🧵'):
     return
@@ -336,7 +336,8 @@ async def create_thread_on_thread_emoji(reaction):
   unawait( message.remove_reaction(reaction.emoji,reaction.member) )
   unawait( message.add_reaction(reaction.emoji) )
   
-  await open_thread( message=message, reason="4D Bot - 🧵 emoji" )
+  thread = await open_thread( message=message, reason="4D Bot - 🧵 emoji" )
+  database.suggestions.update_one({'message_id': {'$eq': reaction.message.id}}, {'message_id': message.id, 'thread_id': thread.id} )
 
 
 ############# REPORT ON 🚨 EMOJI #############
@@ -367,15 +368,67 @@ async def report_on_alarm_emoji(reaction):
   embed.add_field( name="Reported by", value=f'<@{reaction.member.id}>' )
   await client.get_partial_messageable(config.reports_channel).send(embed=embed,allowed_mentions=nextcord.AllowedMentions.none())
 
+@client.listen('on_raw_reaction_add')
+async def popular_channel(reaction: nextcord.RawReactionActionEvent):
+  net_upvote = 0
+  positive = 0
+  negative = 0
+  message =  await client.get_partial_messageable(reaction.channel_id, type=nextcord.TextChannel).fetch_message(reaction.message_id)
+  
+  suggeston = database.suggestions.find_one({'message_id': message.id})
+  message_id = message.id
+  
+  msg_reaction: nextcord.Reaction = None
+  for msg_reaction in message.reactions:
+    if type(msg_reaction.emoji) is not str:
+      emoji = msg_reaction.emoji.name.strip()
+    else:
+      emoji = msg_reaction.emoji.strip()
+    if emoji not in config.suggestions_default_emoji:
+      continue
+
+    if emoji == config.suggestions_default_emoji[0]:
+      positive += 1
+    elif emoji == config.suggestions_default_emoji[1]:
+      negative -= 1
+  net_upvote = positive + negative
+  
+  if not ( net_upvote >= config.net_upvote_requirement ): 
+    return
+  
+  embed = nextcord.Embed(title= f"Go to Suggestion", description=generateThreadName(message.content), url=message.jump_url) \
+    .add_field(name='\u200b', value='\u200b')                                                                               \
+    .set_author(name=message.author.name, icon_url=message.author.avatar.url)                                               \
+    .set_footer(text=f"+{net_upvote} ({positive}|{negative})")                                                              
+    
+  log(suggeston)
+  if suggeston['popular_id'] is not None:
+    message =  await client.get_partial_messageable(config.popular_channel).fetch_message(suggeston['popular_id'])
+  
+    await message.edit(embed=embed)
+  else:
+    message = await client.get_partial_messageable(config.popular_channel).send(embed=embed)
+    database.suggestions.update_one({'message_id': message_id}, {"$set": {'popular_id': message.id}})
+
+    
+  
+  
+
+
+
+
+
 ############# ADD VOTE EMOJI AND THREAD FOR SUGGESTIONS #############
 
 # add default emoji reactions
 @client.listen('on_message')
-async def suggestions_default_emoji(message):
+async def suggestions_default_emoji(message: nextcord.Message):
   
   # only in suggestions channel
   if message.channel.id != config.suggestions_channel:
     return
+  
+  
   
   # only act on normal messages
   if message.type != nextcord.MessageType.default:
@@ -387,7 +440,9 @@ async def suggestions_default_emoji(message):
   
   unawait( react( message, config.suggestions_default_emoji ) )
   
-  await open_thread( message=message, reason="4D Bot - autoThread in #suggestions" )
+  thread = await open_thread( message=message, reason="4D Bot - autoThread in #suggestions" )
+
+  database.suggestions.insert_one({'message_id': message.id, 'thread_id': thread.id, 'popular_id': None})
 
 ############# REMOVE THREAD CREATION NOTICES #############
 
