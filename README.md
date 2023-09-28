@@ -15,3 +15,4 @@ See also the [4D Leveling Bot](//github.com/4dMinerCommunity/4dm-leveling) for t
 - posts in suggestions have a list of emojis automatically added to them (for voting)
 - welcome messages
 - info message that is maintained to always be the most recent in a channel
+- top suggestions!
