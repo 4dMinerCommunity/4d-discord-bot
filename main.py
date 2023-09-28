@@ -85,6 +85,8 @@ def generateThreadName( name: str ):
   return generateName(name, maxlen)
 
 def generateName(name, maxlen):
+  ellipsis = "…"
+  wordellipsiswindow = maxlen//10
   # only use first 'paragraph'
   if '\n' in name:
     name = name[:name.find('\n')]
