@@ -423,45 +423,88 @@ async def report_on_alarm_emoji(reaction):
 
 ############# POPULAR CHANNEL #############
 
+# restore top suggestions history
+@client.listen('on_ready')
+async def getLastInfomsg():
+  
+  suggestions = {}
+  
+  async for topmessage in get_partial_channel(config.popular_channel).history(limit=None,oldest_first=True):
+    if topmessage.author != client.user:
+      continue
+    
+    if len(topmessage.embeds) != 1:
+      continue
+    
+    sug = topmessage.embeds[0].url.split("/")[-1]
+    
+    if sug in suggestions:
+      print(f'WARNING: repeat top of suggestion {sug} ({suggestions[sug]} → {topmessage.id})')
+    
+    suggestions[sug] = topmessage.id
+  
+  # print(suggestions)
+  with open('top-suggestions-restored.json', 'w') as f:
+    json.dump(suggestions, f, ensure_ascii=False)
+  
+  print(f'saved {len(suggestions)} topped suggestions in top-suggestions-restored.json')
+
 @client.listen('on_raw_reaction_add')
+@client.listen('on_raw_reaction_remove')
 async def popular_channel(reaction: nextcord.RawReactionActionEvent):
-  net_upvote = 0
-  positive = 0
-  negative = 0
+  
+  # no change in votes
+  if reaction.emoji.name not in config.suggestions_default_emoji:
+    return
+  
+  votes = { -1: 0, +1: 0 }
   message =  await client.get_partial_messageable(reaction.channel_id, type=nextcord.TextChannel).fetch_message(reaction.message_id)
   
   with open('top-suggestions.json', 'r') as f:
     suggestions = json.load(f)
   
-  msg_reaction: nextcord.Reaction = None
-  for msg_reaction in message.reactions:
-    if type(msg_reaction.emoji) is not str:
+  for msg_reaction in message.reactions: # list( nextcord.Reaction )
+    if msg_reaction.is_custom_emoji():
       emoji = msg_reaction.emoji.name.strip()
     else:
       emoji = msg_reaction.emoji.strip()
-    if emoji not in config.suggestions_default_emoji:
-      continue
-
+    
     if emoji == config.suggestions_default_emoji[0]:
-      positive += msg_reaction.count
+      value = +1
     elif emoji == config.suggestions_default_emoji[1]:
-      negative -= msg_reaction.count
-  net_upvote = positive + negative
+      value = -1
+    else:
+      return
+    
+    async for user in msg_reaction.users():
+      if user.bot:
+        continue
+      
+      votes[value] += 1
   
-  if not ( net_upvote >= config.net_upvote_requirement ): 
-    return
+  net_upvote = votes[+1] - votes[-1]
   
-  embed = nextcord.Embed(title= f"Go to Suggestion", description=generateTopSugBody(message.content), url=message.jump_url) \
-    .add_field(name='\u200b', value='\u200b')                                                                               \
-    .set_author(name=message.author.name, icon_url=message.author.avatar.url)                                               \
-    .set_footer(text=f"+{net_upvote} ({positive}|{negative})")                                                              
+  embed = nextcord.Embed(
+    title = f"Go to Suggestion",
+    description = generateTopSugBody(message.content),
+    url = message.jump_url,
+    ).add_field( name='\u200b', value='\u200b'
+    ).set_author(name=message.author.name, icon_url=message.author.avatar.url
+    ).set_footer(text=f"{net_upvote:+} ({votes[+1]}|-{votes[-1]})"
+  )
   
-  if f"{message.id}" in suggestions:
+  if f"{message.id}" in suggestions: # update
     log(suggestions[f"{message.id}"])
     message =  await client.get_partial_messageable(config.popular_channel).fetch_message(suggestions[f"{message.id}"])
   
     await message.edit(embed=embed)
-  else:
+    
+  else: # maybe create
+    
+    # only add if actually a top suggestion (but still update if no longer)
+    if not ( net_upvote >= config.net_upvote_requirement ): 
+      return
+    
     topmessage = await client.get_partial_messageable(config.popular_channel).send(embed=embed)
     
     suggestions[f"{message.id}"] = topmessage.id

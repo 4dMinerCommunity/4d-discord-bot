@@ -8,7 +8,7 @@ popular_channel = <channel id to send top suggestions to>
 
 net_upvote_requirement = 20
 
-suggestions_default_emoji = ['4DUpvote', '4DDownvote']
+suggestions_default_emoji = ['4DUpvote', '4DDownvote']  # must be 2, of shape (upvote, downvote) for popular suggestions to work
 poll_default_emoji = ['4DUpvote', '4DDownvote']
 welcome_messages = [
   "Hey {}, welcome to **4D Miner**!",
