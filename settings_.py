@@ -1,9 +1,9 @@
-server_ids = [954156776671043625]
+server_ids = [<your discord server id>]
 
-suggestions_channel = 956667255846993950
-reports_channel =  1046834395711012884
-welcome_channel = 955220937995874334
-popular_channel = 1156635371698917496
+reports_channel = <channel id to send reports in>
+welcome_channel = <channel id for welcome messages>
+suggestions_channel = <channel id where suggestions are>
+popular_channel = <channel id to send top suggestions to>
 
 
 net_upvote_requirement = 20
