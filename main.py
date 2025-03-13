@@ -429,19 +429,23 @@ async def getLastInfomsg():
   
   suggestions = {}
   
-  async for topmessage in get_partial_channel(config.popular_channel).history(limit=None,oldest_first=True):
-    if topmessage.author != client.user:
-      continue
-    
-    if len(topmessage.embeds) != 1:
-      continue
-    
-    sug = topmessage.embeds[0].url.split("/")[-1]
-    
-    if sug in suggestions:
-      print(f'WARNING: repeat top of suggestion {sug} ({suggestions[sug]} → {topmessage.id})')
-    
-    suggestions[sug] = topmessage.id
+  import datetime
+  cursor = datetime.datetime.fromisoformat("2020-01-01")
+  for _ in range(5):  # need to set this correctly !!!!
+    async for topmessage in get_partial_channel(config.popular_channel).history(limit=100,after=cursor,oldest_first=True):
+      if topmessage.author != client.user:
+        continue
+      
+      if len(topmessage.embeds) != 1:
+        continue
+      
+      sug = topmessage.embeds[0].url.split("/")[-1]
+      
+      if sug in suggestions:
+        print(f'WARNING: repeat top of suggestion {sug} ({suggestions[sug]} → {topmessage.id})')
+      
+      suggestions[sug] = topmessage.id
+    cursor = topmessage
   
   # print(suggestions)
   with open('top-suggestions-restored.json', 'w') as f:
