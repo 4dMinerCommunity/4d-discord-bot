@@ -11,7 +11,7 @@ import unicodedata
 import random
 
 
-import env  # api keys
+import env  # api key
 import settings as config
 
 log = print
