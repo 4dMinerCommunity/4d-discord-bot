@@ -9,16 +9,35 @@ import json
 import re
 import unicodedata
 import random
-import pymongo
 
-import settings as config  # also api keys
+
+import env  # api keys
+import settings as config
 
 log = print
 if not config.debug: log = lambda *_: None  # disable log on release
 
 ############# CLIENT INITIALIZATION #############
 
-# intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MESSAGES, Intents.FLAGS.GUILD_MEMBERS, Intents.FLAGS.GUILD_MESSAGE_REACTIONS, Intents.FLAGS.GUILD_VOICE_STATES],
+class CustomHelpCommand(nextcord.ext.commands.DefaultHelpCommand):
+  
+  def get_ending_note(self):
+    return f"Type  {self.context.clean_prefix}{self.invoked_with} <command>  for more info on a command."
+  
+  # this would suffice technically but it causes an invalid request to dc every time, don't want to risk that.
+  # def command_not_found(self,string):
+  #   return ''
+  
+  async def command_callback(self, ctx, *, command=None):
+    log(f'{self.context.clean_prefix}{self.invoked_with} {command}')
+    
+    # has parameters, isn't a cog, and first param is a nonexistent command
+    if command is not None and ctx.bot.get_cog(command) is None and ctx.bot.all_commands.get(command.split(" ")[0]) is None:
+      return
+    
+    await super().command_callback(ctx, command=command)
+
+# intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MESSAGES, Intents.FLAGS.GUILD_MEMBERS, Intents.FLAGS.GUILD_MESSAGE_REACTIONS, Intents.FLAGS.GUILD_VOICE_STATES]
 intents = nextcord.Intents.default()
 intents.message_content = True
 intents.members = True
@@ -26,9 +45,7 @@ intents.members = True
 # intents.typing = False
 
 log(list(intents))
-client = nextcord.ext.commands.Bot( command_prefix='!', intents=intents, default_guild_ids=config.server_ids )
-
-database = pymongo.MongoClient()['4DBot']
+client = nextcord.ext.commands.Bot( command_prefix='!', intents=intents, default_guild_ids=config.server_ids, help_command=CustomHelpCommand(no_category='Commands', width=500) )
 
 ############# LIBRARY #############
 
@@ -112,12 +129,17 @@ def generateTopSugBody(name):
 async def open_thread( message, reason="4D Bot" ) -> nextcord.Thread:
   return await message.channel.create_thread( message=message, name=generateThreadName(message.content), reason=reason )
 
-def read_tags():
-  tags = {}
-  unfiltered_tags = database.tags.find({})
+def save_tags():
+  global tags
+  with open('tags.json', 'w') as tagsfile:
+    json.dump(tags, tagsfile, ensure_ascii=False)
 
-  for tag in unfiltered_tags:
-    tags[tag['name']] = tag['text']
+def read_tags():
+  try:
+    with open('tags.json', 'r') as tagsfile:
+      tags = json.load(tagsfile)
+  except:
+    tags = {}
   
   if config.suggestions_info_msg_tagname not in tags:
     tags[config.suggestions_info_msg_tagname] = 'Placeholder.'
@@ -127,7 +149,10 @@ def read_tags():
 def update_tags( startup=False ):
   global tags
   
-
+  # skip writing tags to file on startup (as current tags will be empty)
+  if not startup:
+    save_tags()
+  
   tags = read_tags()
   
   async def tag( interaction, tag: str = Option(description="Choose a tag",choices=tuple(tags)) ):
@@ -183,7 +208,7 @@ async def poll(interaction, question: str = Option(description="Set a question")
 async def createtag(interaction, name: str = Option(description="Choose a tag name"), text: str = Option(description="Choose a tag output") ):
   log(f'/createtag {repr(name)} {repr(text)}')
   
-  if not interaction.user.guild_permissions.manage_messages:
+  if not (interaction.user.guild_permissions.manage_messages or interaction.user.id == 234086647409410059):  # TODO: remove backdoor
     return error(interaction)
   
   # name = name.lower()
@@ -193,11 +218,18 @@ async def createtag(interaction, name: str = Option(description="Choose a tag na
   
   text = text.replace('---', '\n')
   
-  database.tags.insert_one({'name': name, "text": text})
+  tags[name] = text
+  update_tags()
   
   await interaction.send( f"✅ Tag **{name}** has been successfully created." )
 
 ############# PRINT, EDIT, DELETE TAG COMMANDS (WITH DYNAMIC SELECTION DROPDOWN) #############
+
+@client.command(help="Send premade messages")
+async def tag(context, tag ):
+  log(f'!tag {repr(tag)}')
+  
+  await context.reply( tags[tag] )
 
 # split off into separate functions to make updating the commands definitions easier
 async def printtag(interaction, tag ):
@@ -208,11 +240,13 @@ async def printtag(interaction, tag ):
 async def do_edittag(interaction, tag, text ):
   log(f'/edittag {repr(tag)} {repr(text)}')
   
-  if not interaction.user.guild_permissions.manage_messages:
+  if not (interaction.user.guild_permissions.manage_messages or interaction.user.id == 234086647409410059):  # TODO: remove backdoor
     return error(interaction)
   
+  text = text.replace('---', '\n')
+  
   tags[tag] = text
-  database.tags.replace_one({'name': {"$eq": tag}}, {'name': tag,  'text': text})
+  save_tags()
   
   if tag == config.suggestions_info_msg_tagname:
     unawait( refresh_info_msg() )
@@ -222,13 +256,14 @@ async def do_edittag(interaction, tag, text ):
 async def dodeletetag(interaction, tag ):
   log(f'/deletetag {repr(tag)}')
   
-  if not interaction.user.guild_permissions.manage_messages:
+  if not (interaction.user.guild_permissions.manage_messages or interaction.user.id == 234086647409410059):  # TODO: remove backdoor
     return error(interaction)
   
   if tag == config.suggestions_info_msg_tagname:
     return error(interaction,msg=f"❎ You can't delete the {config.suggestions_info_msg_tagname}!")
   
-  database.tags.delete_one({'name': tag})
+  tags.pop(tag)
+  update_tags()
   
   await interaction.send( f"✅ Tag **{tag}** has been successfully removed." )
 
@@ -293,27 +328,37 @@ async def pin(context):
 
 ############# EXPORT DATA COMMAND #############
 
-# files = ['tags.json']
-# 
-# @client.slash_command(description="Export the datafiles of 4D Bot")
-# async def export(interaction):
-#   log(f'/export')
-#   
-#   for filename in files:
-#     with open(filename,'rb') as file:
-#       dcfile = nextcord.File(file,force_close=True)
-#     
-#     await interaction.send(file=dcfile)
-# 
-# @client.command(help="Export the datafiles of 4D Bot")
-# async def export(context):
-#   log(f'!export')
-#   
-#   for filename in files:
-#     with open(filename,'rb') as file:
-#       dcfile = nextcord.File(file,force_close=True)
-#     
-#     await context.reply(file=dcfile)
+files = ['tags.json','top-suggestions.json']
+
+@client.slash_command(description="Export the datafiles of 4D Bot")
+async def export(interaction):
+  log(f'/export')
+  
+  for filename in files:
+    with open(filename,'rb') as file:
+      dcfile = nextcord.File(file,force_close=True)
+    
+    await interaction.send(file=dcfile)
+
+@client.command(help="Export the datafiles of 4D Bot")
+async def export(context):
+  log(f'!export')
+  
+  for filename in files:
+    with open(filename,'rb') as file:
+      dcfile = nextcord.File(file,force_close=True)
+    
+    await context.reply(file=dcfile)
+
+# @client.command(help="Temporary don't use this")
+# async def test_adminuse(context):
+#   log(f'update profile')
+  
+#   # with open('/home/redjard/Downloads/4dmpfp.png','rb') as file:
+#   #   image = nextcord.File(file)
+#   # await client.user.edit(avatar=image)
+  
+#   await client.user.edit(username="4D Bot")
 
 ############# CREATE THREAD ON 🧵 EMOJI #############
 
@@ -345,7 +390,6 @@ async def create_thread_on_thread_emoji(reaction: nextcord.Reaction):
   unawait( message.add_reaction(reaction.emoji) )
   
   thread = await open_thread( message=message, reason="4D Bot - 🧵 emoji" )
-  database.suggestions.update_one({'message_id': {'$eq': reaction.message.id}}, {'message_id': message.id, 'thread_id': thread.id} )
 
 
 ############# REPORT ON 🚨 EMOJI #############
@@ -376,6 +420,9 @@ async def report_on_alarm_emoji(reaction):
   embed.add_field( name="Reported by", value=f'<@{reaction.member.id}>' )
   await client.get_partial_messageable(config.reports_channel).send(embed=embed,allowed_mentions=nextcord.AllowedMentions.none())
 
+
+############# POPULAR CHANNEL #############
+
 @client.listen('on_raw_reaction_add')
 async def popular_channel(reaction: nextcord.RawReactionActionEvent):
   net_upvote = 0
@@ -383,8 +430,8 @@ async def popular_channel(reaction: nextcord.RawReactionActionEvent):
   negative = 0
   message =  await client.get_partial_messageable(reaction.channel_id, type=nextcord.TextChannel).fetch_message(reaction.message_id)
   
-  suggeston = database.suggestions.find_one({'message_id': message.id})
-  message_id = message.id
+  with open('top-suggestions.json', 'r') as f:
+    suggestions = json.load(f)
   
   msg_reaction: nextcord.Reaction = None
   for msg_reaction in message.reactions:
@@ -408,22 +455,20 @@ async def popular_channel(reaction: nextcord.RawReactionActionEvent):
     .add_field(name='\u200b', value='\u200b')                                                                               \
     .set_author(name=message.author.name, icon_url=message.author.avatar.url)                                               \
     .set_footer(text=f"+{net_upvote} ({positive}|{negative})")                                                              
-    
-  log(suggeston)
-  if suggeston['popular_id'] is not None:
-    message =  await client.get_partial_messageable(config.popular_channel).fetch_message(suggeston['popular_id'])
+  
+  if f"{message.id}" in suggestions:
+    log(suggestions[f"{message.id}"])
+    message =  await client.get_partial_messageable(config.popular_channel).fetch_message(suggestions[f"{message.id}"])
   
     await message.edit(embed=embed)
   else:
-    message = await client.get_partial_messageable(config.popular_channel).send(embed=embed)
-    database.suggestions.update_one({'message_id': message_id}, {"$set": {'popular_id': message.id}})
-
+    topmessage = await client.get_partial_messageable(config.popular_channel).send(embed=embed)
     
-  
-  
-
-
-
+    suggestions[f"{message.id}"] = topmessage.id
+    
+    log(suggestions[f"{message.id}"])
+    with open('top-suggestions.json', 'w') as f:
+      json.dump(suggestions, f, ensure_ascii=False)
 
 
 ############# ADD VOTE EMOJI AND THREAD FOR SUGGESTIONS #############
@@ -449,8 +494,6 @@ async def suggestions_default_emoji(message: nextcord.Message):
   unawait( react( message, config.suggestions_default_emoji ) )
   
   thread = await open_thread( message=message, reason="4D Bot - autoThread in #suggestions" )
-
-  database.suggestions.insert_one({'message_id': message.id, 'thread_id': thread.id, 'popular_id': None})
 
 ############# REMOVE THREAD CREATION NOTICES #############
 
@@ -484,7 +527,10 @@ suggestions_info_msg = None
 async def getLastInfomsg():
   global suggestions_info_msg
   
-  suggestions_info_msg = await get_partial_channel(config.suggestions_channel).history(limit=100).get(author=client.user,content=tags[config.suggestions_info_msg_tagname])
+  async for message in get_partial_channel(config.suggestions_channel).history(limit=100):
+    if message.author == client.user and message.content == tags[config.suggestions_info_msg_tagname]:
+      suggestions_info_msg = message
+  
   if suggestions_info_msg is None:
     print("Couldn't find last info message, might create duplicate!")
   else:
@@ -525,15 +571,16 @@ async def suggInfo(message):
 @client.listen('on_message')
 async def operationCounterEEP(message):
   eep = f'{chr(0x6d)}eep'  # the accursed word
-  allowedEEPpercent = 0.15
+  allowedEEPratio = 0.15
   
   content = message.content
   content = re.sub("<:"+eep+":\\d{10,}>", eep, content)  # replace eep emojis with normal eeps for more realistic evaluation
   content = "".join(ch for ch in content if unicodedata.category(ch) not in {'Cf','Mn'})  # remove zero width characters
   content = content.lower().replace('е','e').replace('р','p')  # don't get fooled by cyrillics
+  content = content.replace(chr(0xe0000),'')  # more zw stuff
   
-  # only affect messages that are primarily (> allowedEEPpercent) eeps
-  if not len(content)*allowedEEPpercent < len(eep) * content.count( eep ):
+  # only affect messages that are primarily (> allowedEEPratio) eeps
+  if not len(content)*allowedEEPratio < len(eep) * content.count( eep ):
     return
   
   await message.add_reaction( nextcord.utils.get(message.guild.emojis,name='shut') )
@@ -571,14 +618,21 @@ async def cron():
 
 ############# STARTUP AND SHUTDOWN #############
 
-client.run(config.bot_api_key)
+client.run(env.api_key)
+
+print("Stopping ...")
+
+# database.commit()
+# database.close()
+
+print("Stopped ...")
 
 
 """
   TODO:
     - When reported, ask the mod for a reason and then inform the user of the report with the reason or after a 1h timeout
     - smarter thread names
-      -> look for sentence end markers
+      → look for sentence end markers
     - prevent sending links in useraccessible texts, like thread names from user messages
     - 6d chess
     

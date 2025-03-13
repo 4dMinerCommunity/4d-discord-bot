@@ -1,2 +1,8 @@
-settings*.py
-*.pyc
+# databases
+*.json
+*.db
+*.db-journal
+# api key
+env.py
+
+__pycache__
