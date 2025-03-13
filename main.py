@@ -475,10 +475,9 @@ async def popular_channel(reaction: nextcord.RawReactionActionEvent):
     elif emoji == config.suggestions_default_emoji[1]:
       value = -1
     else:
-      return
+      continue
     
     async for user in msg_reaction.users():
-      log(user)
       if user.bot:
         continue
       
