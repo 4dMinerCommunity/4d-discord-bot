@@ -92,14 +92,11 @@ def error( interaction, msg = "❎ You don't have permissions to execute this co
   unawait( interaction.send( embed=nextcord.Embed( title=msg, colour=color('#c800c8') ), ephemeral=True ) )
 
 def generateThreadName( name: str ):
-  maxlen = config.max_threadname_length
-  ellipsis = "…"
-  wordellipsiswindow = maxlen//10
   
   # replace discord emojis (<:name:id>) with :name:
   name = re.sub(r"<(:[^:]+:)\d{10,}>", r"\1", name)
 
-  return generateName(name, maxlen)
+  return generateName(name, config.max_threadname_length )
 
 def generateName(name, maxlen):
   ellipsis = "…"
@@ -424,6 +421,7 @@ async def report_on_alarm_emoji(reaction):
 ############# POPULAR CHANNEL #############
 
 # restore top suggestions history
+"""
 @client.listen('on_ready')
 async def getLastInfomsg():
   
@@ -452,20 +450,21 @@ async def getLastInfomsg():
     json.dump(suggestions, f, ensure_ascii=False)
   
   print(f'saved {len(suggestions)} topped suggestions in top-suggestions-restored.json')
+# """
 
 @client.listen('on_raw_reaction_add')
 @client.listen('on_raw_reaction_remove')
 async def popular_channel(reaction: nextcord.RawReactionActionEvent):
+  log(f'react')
   
   # no change in votes
   if reaction.emoji.name not in config.suggestions_default_emoji:
     return
+  log(f'react 2')
   
-  votes = { -1: 0, +1: 0 }
   message =  await client.get_partial_messageable(reaction.channel_id, type=nextcord.TextChannel).fetch_message(reaction.message_id)
   
-  with open('top-suggestions.json', 'r') as f:
-    suggestions = json.load(f)
+  votes = { -1: 0, +1: 0 }
   
   for msg_reaction in message.reactions: # list( nextcord.Reaction )
     if msg_reaction.is_custom_emoji():
@@ -488,6 +487,8 @@ async def popular_channel(reaction: nextcord.RawReactionActionEvent):
   
   net_upvote = votes[+1] - votes[-1]
   
+  log(f'{net_upvote:+} ({votes[+1]}|-{votes[-1]})  {generateThreadName(message.content)} ({message.id})')
+  
   embed = nextcord.Embed(
     title = f"Go to Suggestion",
     description = generateTopSugBody(message.content),
@@ -496,6 +497,9 @@ async def popular_channel(reaction: nextcord.RawReactionActionEvent):
     ).set_author(name=message.author.name, icon_url=message.author.avatar.url
     ).set_footer(text=f"{net_upvote:+} ({votes[+1]}|-{votes[-1]})"
   )
+  
+  with open('top-suggestions.json', 'r') as f:
+    suggestions = json.load(f)
   
   if f"{message.id}" in suggestions: # update
     log(suggestions[f"{message.id}"])
@@ -509,13 +513,11 @@ async def popular_channel(reaction: nextcord.RawReactionActionEvent):
     if not ( net_upvote >= config.net_upvote_requirement ): 
       return
     
-    topmessage = await client.get_partial_messageable(config.popular_channel).send(embed=embed)
+    suggestions[f"{message.id}"] = (await client.get_partial_messageable(config.popular_channel).send(embed=embed)).id
     
-    suggestions[f"{message.id}"] = topmessage.id
-    
-    log(suggestions[f"{message.id}"])
     with open('top-suggestions.json', 'w') as f:
       json.dump(suggestions, f, ensure_ascii=False)
+    log(f'new top {suggestions[str(message.id)]} → {message.id}')
 
 
 ############# ADD VOTE EMOJI AND THREAD FOR SUGGESTIONS #############
