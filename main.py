@@ -4,7 +4,7 @@ import nextcord, nextcord.ext.commands
 from nextcord import SlashOption as Option
 
 from time import time
-from asyncio import create_task as unawait, gather
+from asyncio import create_task as unawait, gather, sleep
 import json
 import re
 import unicodedata
@@ -461,6 +461,8 @@ async def popular_channel():
     suggestions = json.load(f)
  
  for topsug in suggestions:
+  
+  await sleep(10)
   
   message =  await client.get_partial_messageable(config.suggestions_channel, type=nextcord.TextChannel).fetch_message(topsug)
   
