@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
 import nextcord, nextcord.ext.commands
 from nextcord import SlashOption as Option
