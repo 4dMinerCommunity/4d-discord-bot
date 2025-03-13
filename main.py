@@ -455,12 +455,10 @@ async def getLastInfomsg():
 @client.listen('on_raw_reaction_add')
 @client.listen('on_raw_reaction_remove')
 async def popular_channel(reaction: nextcord.RawReactionActionEvent):
-  log(f'react')
   
   # no change in votes
   if reaction.emoji.name not in config.suggestions_default_emoji:
     return
-  log(f'react 2')
   
   message =  await client.get_partial_messageable(reaction.channel_id, type=nextcord.TextChannel).fetch_message(reaction.message_id)
   
@@ -480,6 +478,7 @@ async def popular_channel(reaction: nextcord.RawReactionActionEvent):
       return
     
     async for user in msg_reaction.users():
+      log(user)
       if user.bot:
         continue
       
