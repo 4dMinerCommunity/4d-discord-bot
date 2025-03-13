@@ -453,7 +453,7 @@ async def getLastInfomsg():
 # """
 
 # regenerate all top suggestions
-# """
+"""
 @client.listen('on_ready')
 async def popular_channel():
  
