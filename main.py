@@ -91,12 +91,12 @@ def color( hexstr ):
 def error( interaction, msg = "❎ You don't have permissions to execute this command!" ):
   unawait( interaction.send( embed=nextcord.Embed( title=msg, colour=color('#c800c8') ), ephemeral=True ) )
 
-def generateThreadName( name: str ):
+def generateThreadName( name: str, maxlen: int = config.max_threadname_length ):
   
   # replace discord emojis (<:name:id>) with :name:
   name = re.sub(r"<(:[^:]+:)\d{10,}>", r"\1", name)
 
-  return generateName(name, config.max_threadname_length )
+  return generateName(name, maxlen )
 
 def generateName(name, maxlen):
   ellipsis = "…"
@@ -452,6 +452,70 @@ async def getLastInfomsg():
   print(f'saved {len(suggestions)} topped suggestions in top-suggestions-restored.json')
 # """
 
+# regenerate all top suggestions
+# """
+@client.listen('on_ready')
+async def popular_channel():
+ 
+ with open('top-suggestions.json', 'r') as f:
+    suggestions = json.load(f)
+ 
+ for topsug in suggestions:
+  
+  message =  await client.get_partial_messageable(config.suggestions_channel, type=nextcord.TextChannel).fetch_message(topsug)
+  
+  votes = { -1: 0, +1: 0 }
+  
+  for msg_reaction in message.reactions: # list( nextcord.Reaction )
+    if msg_reaction.is_custom_emoji():
+      emoji = msg_reaction.emoji.name.strip()
+    else:
+      emoji = msg_reaction.emoji.strip()
+    
+    if emoji == config.suggestions_default_emoji[0]:
+      value = +1
+    elif emoji == config.suggestions_default_emoji[1]:
+      value = -1
+    else:
+      continue
+    
+    async for user in msg_reaction.users():
+      if user.bot:
+        continue
+      
+      votes[value] += 1
+  
+  net_upvote = votes[+1] - votes[-1]
+  
+  log(f'regen {net_upvote:+} ({votes[+1]}|-{votes[-1]})  {generateThreadName(message.content,50)} ({message.id})')
+  
+  embed = nextcord.Embed(
+    title = f"Go to Suggestion",
+    description = generateTopSugBody(message.content),
+    url = message.jump_url,
+    ).add_field( name='\u200b', value='\u200b'
+    ).set_author(name=message.author.name, icon_url=message.author.avatar.url
+    ).set_footer(text=f"{net_upvote:+} ({votes[+1]}|-{votes[-1]})"
+  )
+  
+  if f"{message.id}" in suggestions: # update
+    message =  await client.get_partial_messageable(config.popular_channel).fetch_message(suggestions[f"{message.id}"])
+  
+    await message.edit(embed=embed)
+    
+  else: # maybe create
+    
+    # only add if actually a top suggestion (but still update if no longer)
+    if not ( net_upvote >= config.net_upvote_requirement ): 
+      return
+    
+    suggestions[f"{message.id}"] = (await client.get_partial_messageable(config.popular_channel).send(embed=embed)).id
+    
+    with open('top-suggestions.json', 'w') as f:
+      json.dump(suggestions, f, ensure_ascii=False)
+    log(f'new top {suggestions[str(message.id)]} → {message.id}')
+# """
+
 @client.listen('on_raw_reaction_add')
 @client.listen('on_raw_reaction_remove')
 async def popular_channel(reaction: nextcord.RawReactionActionEvent):
@@ -485,7 +549,7 @@ async def popular_channel(reaction: nextcord.RawReactionActionEvent):
   
   net_upvote = votes[+1] - votes[-1]
   
-  log(f'{net_upvote:+} ({votes[+1]}|-{votes[-1]})  {generateThreadName(message.content)} ({message.id})')
+  log(f'{net_upvote:+} ({votes[+1]}|-{votes[-1]})  {generateThreadName(message.content,50)} ({message.id})')
   
   embed = nextcord.Embed(
     title = f"Go to Suggestion",
@@ -500,7 +564,6 @@ async def popular_channel(reaction: nextcord.RawReactionActionEvent):
     suggestions = json.load(f)
   
   if f"{message.id}" in suggestions: # update
-    log(suggestions[f"{message.id}"])
     message =  await client.get_partial_messageable(config.popular_channel).fetch_message(suggestions[f"{message.id}"])
   
     await message.edit(embed=embed)
