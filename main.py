@@ -349,13 +349,15 @@ async def export(context):
 
 # @client.command(help="Temporary don't use this")
 # async def test_adminuse(context):
-#   log(f'update profile')
+#   log(f'test_adminuse')
   
 #   # with open('/home/redjard/Downloads/4dmpfp.png','rb') as file:
 #   #   image = nextcord.File(file)
 #   # await client.user.edit(avatar=image)
   
-#   await client.user.edit(username="4D Bot")
+#   # await client.user.edit(username="4D Bot")
+  
+#   # unawait( (await client.get_partial_messageable(config.popular_channel, type=nextcord.TextChannel).fetch_message(1349890785868251183)).delete() )
 
 ############# CREATE THREAD ON 🧵 EMOJI #############
 

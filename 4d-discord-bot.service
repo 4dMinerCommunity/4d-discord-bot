@@ -1,0 +1,14 @@
+[Unit]
+Description=4DLeveling
+After=network-online.target
+
+[Service]
+Type=exec
+User=redjard
+ExecStart=/home/redjard/opt/4d_bots/4d-discord-bot/main.py
+WorkingDirectory=/home/redjard/opt/4d_bots/4d-discord-bot/
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
