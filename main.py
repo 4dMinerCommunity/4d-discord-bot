@@ -14,6 +14,10 @@ import random
 import env  # api key
 import settings as config
 
+#rewrite print to flush, so it plays nice with systemd and other pipe stuff
+ogprint = print
+print = lambda *args, **kwargs: ogprint( *args, flush=True, **kwargs )
+
 log = print
 if not config.debug: log = lambda *_: None  # disable log on release
 
