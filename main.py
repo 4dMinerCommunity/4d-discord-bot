@@ -496,7 +496,7 @@ async def popular_channel():
     description = generateTopSugBody(message.content),
     url = message.jump_url,
     ).add_field( name='\u200b', value='\u200b'
-    ).set_author(name=message.author.name, icon_url=message.author.avatar.url
+    ).set_author(name=message.author.name, icon_url= message.author.avatar.url if message.author.avatar else None
     ).set_footer(text=f"{net_upvote:+} ({votes[+1]}|-{votes[-1]})"
   )
   
@@ -522,11 +522,19 @@ async def popular_channel():
 @client.listen('on_raw_reaction_remove')
 async def popular_channel(reaction: nextcord.RawReactionActionEvent):
   
+  # not suggestions channel
+  if reaction.channel_id != config.suggestions_channel:
+    return
+  
   # no change in votes
   if reaction.emoji.name not in config.suggestions_default_emoji:
     return
   
   message =  await client.get_partial_messageable(reaction.channel_id, type=nextcord.TextChannel).fetch_message(reaction.message_id)
+  
+  # no change in votes
+  if reaction.emoji.name not in config.suggestions_default_emoji:
+    return
   
   votes = { -1: 0, +1: 0 }
   
@@ -558,7 +566,7 @@ async def popular_channel(reaction: nextcord.RawReactionActionEvent):
     description = generateTopSugBody(message.content),
     url = message.jump_url,
     ).add_field( name='\u200b', value='\u200b'
-    ).set_author(name=message.author.name, icon_url=message.author.avatar.url
+    ).set_author(name=message.author.name, icon_url= message.author.avatar.url if message.author.avatar else None
     ).set_footer(text=f"{net_upvote:+} ({votes[+1]}|-{votes[-1]})"
   )
   
