@@ -293,7 +293,7 @@ async def rename_thread(interaction, name: str = Option(description="New name") 
   
   name = generateThreadName(name)
   
-  unawait( interaction.send( f"✎ Thread renamed from '{thread.name}' to '{name}'\n(hopefully - discord thread renaming is unreliable )" ) )
+  unawait( interaction.send( f"✎ Thread renamed from {repr(thread.name)} to {repr(name)}\n(hopefully - discord thread renaming is unreliable )" ) )
   
   await thread.edit(name=name)
 
@@ -354,6 +354,9 @@ async def export(context):
 # @client.command(help="Temporary don't use this")
 # async def test_adminuse(context):
 #   log(f'test_adminuse')
+  
+#   if context.author.id != 234086647409410059:
+#     return
   
 #   # with open('/home/redjard/Downloads/4dmpfp.png','rb') as file:
 #   #   image = nextcord.File(file)
@@ -539,7 +542,7 @@ async def popular_channel(reaction: nextcord.RawReactionActionEvent):
   message =  await client.get_partial_messageable(reaction.channel_id, type=nextcord.TextChannel).fetch_message(reaction.message_id)
   
   # no change in votes
-  if reaction.emoji.name not in config.suggestions_default_emoji:
+  if message.author.bot:
     return
   
   votes = { -1: 0, +1: 0 }
