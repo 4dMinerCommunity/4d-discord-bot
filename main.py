@@ -382,11 +382,7 @@ async def create_thread_on_thread_emoji(reaction: nextcord.Reaction):
   if reaction.member == client.user:
     return
   
-  channel, message = await gather(
-    get_channel(reaction.channel_id),  # needed for create_thread
-    client.get_partial_messageable(reaction.channel_id,type=nextcord.ChannelType.text).fetch_message(reaction.message_id),
-  )
-  message.channel = channel
+  message = await client.get_channel(reaction.channel_id).fetch_message(reaction.message_id)
   
   # we already have a thread
   if not message.thread is None:
@@ -541,7 +537,7 @@ async def popular_channel(reaction: nextcord.RawReactionActionEvent):
   
   message =  await client.get_partial_messageable(reaction.channel_id, type=nextcord.TextChannel).fetch_message(reaction.message_id)
   
-  # no change in votes
+  # posts by bots aren't eligible
   if message.author.bot:
     return
   
